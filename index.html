@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Conjugate Planner</title>
+  <meta name="description" content="Westside conjugate training session planner and logger" />
+  <meta name="theme-color" content="#0d0d0f" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Conjugate" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <noscript><p style="padding:20px">Conjugate Planner requires JavaScript.</p></noscript>
+
+  <header class="appbar no-print">
+    <div class="appbar-left">
+      <span class="brand"><span class="brand-mark">▮▮</span> Conjugate</span>
+    </div>
+    <div class="appbar-right">
+      <div class="mode-toggle" role="group" aria-label="Planner mode">
+        <button type="button" class="active" data-mode="Plan">Plan</button>
+        <button type="button" data-mode="Log">Log</button>
+      </div>
+      <span class="status-dot" id="draftStatus" title="Draft autosave ready"></span>
+    </div>
+  </header>
+
+  <main class="views">
+
+    <!-- ============ TRAIN VIEW ============ -->
+    <section class="view active" id="view-train">
+      <div class="session-chips no-print" id="sessionChips"></div>
+
+      <div class="content" id="printArea">
+        <div class="print-header">
+          <h1>Conjugate Training Session</h1>
+          <p id="printSubtitle">Daily Session Planner</p>
+        </div>
+
+        <section class="hero">
+          <div>
+            <div class="muted small" id="modeLabel">PLAN MODE</div>
+            <h2 id="sessionTitle">Max Effort Lower</h2>
+            <p id="sessionDescription" class="muted"></p>
+          </div>
+          <span class="status-pill" id="readinessBadge">Readiness: Not rated</span>
+        </section>
+
+        <section class="card">
+          <details open>
+            <summary class="card-head">
+              <div><div class="eyebrow">Session Setup</div><h3>Athlete &amp; Training Context</h3></div>
+            </summary>
+            <div class="card-body">
+              <div class="grid grid-4">
+                <div class="field"><label for="athlete">Athlete</label><input id="athlete" autocomplete="name" /></div>
+                <div class="field"><label for="sessionDate">Date</label><input id="sessionDate" type="date" /></div>
+                <div class="field"><label for="weekNumber">Week #</label><input id="weekNumber" type="number" min="1" step="1" inputmode="numeric" /></div>
+                <div class="field"><label for="bodyweight">Bodyweight</label><div class="inline-field"><input id="bodyweight" type="number" min="0" step="0.1" inputmode="decimal" /><span class="unit weight-unit">lb</span></div></div>
+                <div class="field span-2">
+                  <label for="trainingPhase">Training Phase</label>
+                  <input id="trainingPhase" list="phaseList" placeholder="Choose or type a phase" />
+                  <datalist id="phaseList">
+                    <option>General Conjugate Development</option><option>Weak-Point Development</option>
+                    <option>Speed-Strength Development</option><option>Strength-Speed Development</option>
+                    <option>Competition Preparation</option><option>Circa-Max</option>
+                    <option>Delayed Transformation</option><option>Return to Training</option>
+                    <option>Deload / Fatigue Reduction</option>
+                  </datalist>
+                </div>
+                <div class="field span-2"><label for="primaryGoal">Primary Goal</label><input id="primaryGoal" placeholder="What should this session accomplish?" /></div>
+                <div class="field span-2"><label for="weakPoint">Current Weak Point</label><input id="weakPoint" list="weakPointList" placeholder="Choose or type a weak point" /></div>
+                <div class="field span-2"><label for="painRestrictions">Pain / Restrictions</label><input id="painRestrictions" placeholder="None, or record relevant limitations" /></div>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <datalist id="weakPointList">
+          <option>Starting Strength</option><option>Accelerating Strength</option><option>Speed-Strength</option><option>Strength-Speed</option>
+          <option>Hamstrings</option><option>Glutes / Hip Extension</option><option>Quads</option><option>Low Back</option>
+          <option>Upper Back</option><option>Lats</option><option>Abs / Bracing</option><option>Grip</option>
+          <option>Off Chest</option><option>Bench Midrange</option><option>Bench Lockout</option><option>Triceps</option>
+          <option>Shoulder Stability</option><option>Technique</option><option>Work Capacity</option><option>Recovery Capacity</option>
+        </datalist>
+
+        <section class="card">
+          <details open>
+            <summary class="card-head">
+              <div><div class="eyebrow">Readiness</div><h3>Daily Readiness Check</h3></div>
+              <span class="status-pill" id="readinessText">Complete all four ratings</span>
+            </summary>
+            <div class="card-body">
+              <div class="readiness-grid" id="readinessGrid"></div>
+              <div class="grid grid-2" style="margin-top:14px">
+                <div class="field">
+                  <label for="painToday">Pain Today?</label>
+                  <select id="painToday"><option>No</option><option>Mild — does not alter training</option><option>Moderate — modify training</option><option>Severe / worsening — stop and refer</option></select>
+                </div>
+                <div class="field"><label for="readinessAction">Planned Adjustment</label><input id="readinessAction" placeholder="None, reduce volume, change exercise…" /></div>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="card" id="warmupCard">
+          <div class="card-head">
+            <div><div class="eyebrow">Preparation</div><h3>Warm-Up</h3></div>
+            <button class="btn no-print" type="button" data-add-row="warmup">＋ Add</button>
+          </div>
+          <div class="card-body">
+            <div class="section-note">The smallest dose that improves temperature, position, bracing and readiness without creating fatigue.</div>
+            <div class="table-wrap" id="warmupTableWrap"></div>
+          </div>
+        </section>
+
+        <div id="sessionSpecific"></div>
+
+        <section class="card" id="notesCard">
+          <div class="card-head"><div><div class="eyebrow">Review</div><h3>Session Notes</h3></div></div>
+          <div class="card-body">
+            <div class="grid grid-2">
+              <div class="field"><label for="sessionNotes">Today's Notes</label><textarea id="sessionNotes" placeholder="Technique, bar speed, cues, changes from plan…"></textarea></div>
+              <div class="field"><label for="nextSessionNotes">Next Session</label><textarea id="nextSessionNotes" placeholder="Repeat, change, progress or avoid next time?"></textarea></div>
+            </div>
+          </div>
+        </section>
+
+        <div class="footer-actions no-print">
+          <button class="btn" id="newBtn">＋ New</button>
+          <button class="btn" id="printBtn">Print / PDF</button>
+          <button class="btn primary grow" id="saveBtn">Save Session</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ HISTORY VIEW ============ -->
+    <section class="view" id="view-history">
+      <div class="content">
+        <section class="hero"><div><div class="muted small">LOCAL + GOOGLE SHEETS</div><h2>Training History</h2></div></section>
+        <section class="card">
+          <div class="card-body">
+            <div class="grid grid-4">
+              <div class="field"><label>Session Type</label><select id="historyTypeFilter"><option value="">All Sessions</option></select></div>
+              <div class="field"><label>Exercise</label><input id="historyExerciseFilter" placeholder="Search main exercise" /></div>
+              <div class="field"><label>Athlete</label><input id="historyAthleteFilter" placeholder="Search athlete" /></div>
+              <div class="field"><label>&nbsp;</label><button class="btn" id="remoteHistoryBtn">⟳ Sync Remote</button></div>
+            </div>
+          </div>
+        </section>
+        <div id="historyList"></div>
+      </div>
+    </section>
+
+    <!-- ============ PROGRESS VIEW ============ -->
+    <section class="view" id="view-progress">
+      <div class="content">
+        <section class="hero"><div><div class="muted small">RECORDS &amp; TRENDS</div><h2>Progress</h2></div>
+          <button class="btn" id="exportPrCsvBtn">Export PR CSV</button></section>
+
+        <section class="card">
+          <div class="card-head"><div><div class="eyebrow">Trend</div><h3>Max-Effort Variation</h3></div></div>
+          <div class="card-body">
+            <div class="field"><label for="progressVariation">Variation</label><select id="progressVariation"></select></div>
+            <div class="stat-tiles" id="variationStats"></div>
+            <div class="chart-wrap" id="variationChart"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><div><div class="eyebrow">Workload</div><h3>Weekly Barbell Volume</h3></div></div>
+          <div class="card-body"><div class="chart-wrap" id="volumeChart"></div></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><div><div class="eyebrow">Recovery</div><h3>Readiness Trend</h3></div></div>
+          <div class="card-body"><div class="chart-wrap" id="readinessChart"></div></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><div><div class="eyebrow">Records</div><h3>PR Review</h3></div></div>
+          <div class="card-body">
+            <div class="grid grid-2">
+              <div class="field"><label>Search Exercise</label><input id="prSearch" placeholder="SSB, floor press, rack pull…" /></div>
+              <div class="field"><label>Athlete</label><input id="prAthlete" /></div>
+            </div>
+            <div id="prList" style="margin-top:14px"></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS VIEW ============ -->
+    <section class="view" id="view-settings">
+      <div class="content">
+        <section class="hero"><div><div class="muted small">CONFIGURATION</div><h2>Settings</h2></div></section>
+
+        <section class="card">
+          <div class="card-head"><div><div class="eyebrow">Profile</div><h3>Athlete &amp; Units</h3></div></div>
+          <div class="card-body">
+            <div class="grid grid-2">
+              <div class="field"><label>Default Athlete</label><input id="settingAthlete" /></div>
+              <div class="field"><label>Weight Unit</label><select id="settingUnit"><option value="lb">lb</option><option value="kg">kg</option></select></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><div><div class="eyebrow">Sync</div><h3>Google Sheets</h3></div></div>
+          <div class="card-body">
+            <div class="grid grid-2">
+              <div class="field span-full"><label>Apps Script Web App URL</label><input id="settingScriptUrl" placeholder="https://script.google.com/macros/s/…/exec" /></div>
+              <div class="field"><label>Access Token</label><input id="settingToken" placeholder="Must match Code.gs" /></div>
+              <div class="field"><label>Sync Completed Sessions</label><select id="settingSync"><option value="off">Local only</option><option value="on">Local + Google Sheets</option></select></div>
+              <div class="field span-full">
+                <label>Planner Database</label>
+                <div class="inline-field"><input value="Conjugate Session Planner Database" readonly /><a class="btn" href="https://docs.google.com/spreadsheets/d/1RMrZrcdkxUJUeDbWc-IZ8HMJlhzBEKuBAJXtJ7ngfWc/edit" target="_blank" rel="noopener">Open Sheet</a></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><div><div class="eyebrow">Library</div><h3>Custom Exercise</h3></div></div>
+          <div class="card-body">
+            <div class="grid grid-2">
+              <div class="field"><label>Name</label><input id="customExerciseName" /></div>
+              <div class="field"><label>Category</label><input id="customExerciseCategory" list="customCategoryList" /></div>
+            </div>
+            <datalist id="customCategoryList"><option>Warm-Up</option><option>ME Lower</option><option>ME Upper</option><option>Posterior Chain</option><option>Triceps</option><option>Upper Back / Lats</option><option>Delts</option><option>Abs</option><option>GPP</option><option>Recovery</option><option>Plyometric</option></datalist>
+            <button class="btn" id="addCustomExerciseBtn" style="margin-top:12px">Save Custom Exercise</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><div><div class="eyebrow">Data</div><h3>Backup &amp; Restore</h3></div></div>
+          <div class="card-body">
+            <p class="muted small">Local history stays on this device. Export a backup before moving devices or clearing browser data. Backups from the original HTML planner import here too.</p>
+            <div class="btn-stack">
+              <button class="btn" id="exportBackupBtn">Export Full Backup</button>
+              <label class="btn" style="text-align:center">Import Backup<input id="importBackupInput" type="file" accept="application/json" hidden /></label>
+              <button class="btn danger" id="clearLocalDataBtn">Clear Local History</button>
+            </div>
+            <p class="muted small" id="appVersion" style="margin-top:14px"></p>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <!-- Rest timer -->
+  <div class="rest-fab no-print" id="restFab" hidden>
+    <button class="rest-fab-btn" id="restFabBtn" aria-label="Rest timer">⏱</button>
+    <div class="rest-popover" id="restPopover" hidden>
+      <div class="rest-title">Rest Timer</div>
+      <div class="rest-presets">
+        <button data-rest="60">1:00</button><button data-rest="90">1:30</button>
+        <button data-rest="120">2:00</button><button data-rest="180">3:00</button>
+        <button data-rest="300">5:00</button>
+      </div>
+      <button class="btn danger" id="restStopBtn" style="width:100%">Stop</button>
+    </div>
+  </div>
+
+  <nav class="bottom-nav no-print" aria-label="Main">
+    <button class="nav-item active" data-view="train"><svg viewBox="0 0 24 24"><path d="M4 9v6M8 6v12M16 6v12M20 9v6M8 12h8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg><span>Train</span></button>
+    <button class="nav-item" data-view="history"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M3.5 12a8.5 8.5 0 1 1 2.5 6M3.5 12H7M3.5 12l-1.5 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>History</span></button>
+    <button class="nav-item" data-view="progress"><svg viewBox="0 0 24 24"><path d="M4 19h16M6 16l4-5 3 3 5-7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Progress</span></button>
+    <button class="nav-item" data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Settings</span></button>
+  </nav>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+CONJUGATE SESSION PLANNER — SETUP GUIDE
+========================================
+
+FILES
+-----
+1. conjugate_session_planner.html
+   Open this file directly in Google Chrome. It works offline and stores drafts/history in that browser.
+
+2. Code.gs
+   Optional Google Apps Script bridge for permanent Google Sheets storage.
+
+3. Google Sheet database
+   https://docs.google.com/spreadsheets/d/1RMrZrcdkxUJUeDbWc-IZ8HMJlhzBEKuBAJXtJ7ngfWc/edit
+
+WHAT WORKS IMMEDIATELY
+----------------------
+- ME Lower, ME Upper, DE Lower, DE Upper
+- GPP / Extra Workout
+- Recovery / Restoration
+- Deload
+- Context-sensitive searchable exercise menus
+- Custom exercises
+- Plan and Log modes
+- Dynamic exercise rows and ME work-up sets
+- DE load and barbell-volume calculations
+- Readiness scoring
+- Local draft autosave
+- Local session history and PR review
+- Copy previous sessions
+- Printable black-on-white session sheets
+- Chrome Print > Save as PDF
+- JSON backup/import and PR CSV export
+
+CONNECT GOOGLE SHEETS
+---------------------
+1. Open the database Sheet above.
+2. Click Extensions > Apps Script.
+3. Delete any starter code and paste the complete contents of Code.gs.
+4. In Code.gs, change:
+      const ACCESS_TOKEN = 'CHANGE_ME';
+   to a private phrase, or set it to an empty string:
+      const ACCESS_TOKEN = '';
+5. Click Deploy > New deployment.
+6. Select type: Web app.
+7. Execute as: Me.
+8. Who has access: Anyone with the link.
+9. Deploy and copy the Web App URL.
+10. Open the HTML planner in Chrome.
+11. Open Settings.
+12. Paste the Web App URL.
+13. Enter the same access token used in Code.gs.
+14. Set Sync Completed Sessions to “Local + Google Sheets.”
+15. Save Settings.
+
+DATA MODEL
+----------
+Sessions           One row per completed workout.
+Exercise_Log       One row per exercise or work-up set.
+PRs                Best exact-variation max-effort records.
+Custom_Exercises   User-created exercise library.
+Athletes_Settings  Athlete profile and future configuration fields.
+
+IMPORTANT
+---------
+- Do not put Google account passwords or API keys inside the HTML file.
+- The Apps Script Web App URL is the bridge between the local HTML file and the Sheet.
+- Local browser history is tied to the browser/profile and file origin. Export a backup before moving computers or clearing browser data.
+- The planner is a training organization tool, not a diagnostic or medical tool.
