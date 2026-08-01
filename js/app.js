@@ -7,7 +7,7 @@
 
   const { sessionMeta, exerciseDB, presets, categoryLabels, row } = window.ConjugateData;
 
-  const APP_VERSION = '2.0.0';
+  const APP_VERSION = '2.1.0';
   const DB_SHEET_ID = '1RMrZrcdkxUJUeDbWc-IZ8HMJlhzBEKuBAJXtJ7ngfWc';
   const STORAGE = {
     draft: 'conjugatePlannerDraftV2',
@@ -31,7 +31,8 @@
     const d = new Date();
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   }
-  function setRow(weight = '', reps = '', rpe = '', result = 'Successful', notes = '') { return { weight, reps, rpe, result, notes }; }
+  function setRow(weight = '', reps = '', rpe = '', result = 'Successful', notes = '') { return { weight, reps, rpe, result, notes, done: false }; }
+  function logSet(weight = '', reps = '', done = false) { return { weight, reps, done }; }
   function loadJSON(key, fallback) {
     try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : structuredClone(fallback); }
     catch { return structuredClone(fallback); }
@@ -54,7 +55,7 @@
       readiness: { sleep: '', energy: '', soreness: '', stress: '', painToday: 'No', action: '' },
       warmup: [row(defaultWarmup(sessionType)), row()],
       main: { exercise: '', bar: 'Straight Bar', stanceGrip: '', romSetup: '', resistance: 'Straight Weight', bandSetup: '', previousPR: '', target: '', topResultWeight: '', topResultReps: '1', isPR: false, sets: [setRow('', 5), setRow('', 3), setRow('', 1)] },
-      de: { primer: '', primerSets: '', primerReps: '', contacts: '', heightDistance: '', wave: 'Week 1', baseMax: '', percentage: '50', barWeight: '', bar: 'Straight Bar', boxSetup: '', resistance: 'Straight Weight', bandSetup: '', sets: '12', reps: '2', rest: '45', speedQuality: 'Good', speedNotes: '', speedPullExercise: 'Speed Deadlift — Conventional', speedPullWeight: '', speedPullResistance: 'Straight Weight', speedPullSets: '6', speedPullReps: '1', speedPullRest: '60', speedPullQuality: 'Good' },
+      de: { primer: '', primerSets: '', primerReps: '', contacts: '', heightDistance: '', wave: 'Week 1', baseMax: '', percentage: '50', barWeight: '', bar: 'Straight Bar', boxSetup: '', resistance: 'Straight Weight', bandSetup: '', sets: '12', reps: '2', rest: '45', speedQuality: 'Good', speedNotes: '', speedPullExercise: 'Speed Deadlift — Conventional', speedPullWeight: '', speedPullResistance: 'Straight Weight', speedPullSets: '6', speedPullReps: '1', speedPullRest: '60', speedPullQuality: 'Good', primerLog: [], mainLog: [], speedPullLog: [] },
       supplemental: [row()], accessories: [row(), row(), row()],
       gpp: { purpose: 'Work Capacity', focus: 'Posterior Chain', targetDuration: '20', intensity: 'RPE 5–6', preset: '', rows: [row(), row(), row()] },
       recovery: { mode: 'Restoration', reason: 'Post-ME Lower Recovery', availableTime: '20', preset: '', intensity: 'RPE 3–5', equipment: ['Bike', 'Reverse Hyper', 'Bands'], mainLiftLoad: 'Reduce', accessoryVolume: 'Reduce ~50%', gppStrategy: 'Easy Restoration', duration: '1 Week', rows: [row(), row(), row()] },
@@ -77,7 +78,48 @@
     merged.warmup = Array.isArray(input && input.warmup) ? input.warmup : base.warmup;
     merged.supplemental = Array.isArray(input && input.supplemental) ? input.supplemental : base.supplemental;
     merged.accessories = Array.isArray(input && input.accessories) ? input.accessories : base.accessories;
-    return merged;
+    return ensureLogShapes(merged);
+  }
+
+  function ensureLogShapes(s) {
+    [s.warmup, s.supplemental, s.accessories, s.gpp.rows, s.recovery.rows]
+      .forEach(rows => (rows || []).forEach(r => { if (!Array.isArray(r.log)) r.log = []; }));
+    (s.main.sets || []).forEach(x => { if (typeof x.done !== 'boolean') x.done = false; });
+    ['primerLog', 'mainLog', 'speedPullLog'].forEach(k => { if (!Array.isArray(s.de[k])) s.de[k] = []; });
+    return s;
+  }
+
+  /* Pre-create logged-set rows from the plan so Log mode is ready to check off. */
+  function seedLogs() {
+    ensureLogShapes(state);
+    const seedRows = rows => rows.forEach(r => {
+      if (!r.exercise || r.log.length) return;
+      const n = Math.min(Math.max(parseInt(r.sets, 10) || 1, 1), 12);
+      r.log = Array.from({ length: n }, () => logSet(r.weight, r.reps || r.duration));
+    });
+    const seedCount = (sets, weight, reps, cap = 24) => {
+      const n = Math.min(Math.max(parseInt(sets, 10) || 1, 1), cap);
+      return Array.from({ length: n }, () => logSet(weight, reps));
+    };
+    seedRows(state.warmup);
+    const t = state.sessionType;
+    if (t.startsWith('ME ') || t.startsWith('DE ')) { seedRows(state.supplemental); seedRows(state.accessories); }
+    if (t.startsWith('DE ')) {
+      const de = state.de;
+      if (de.primer && !de.primerLog.length) de.primerLog = seedCount(de.primerSets, '', de.primerReps, 12);
+      if (state.main.exercise && !de.mainLog.length) de.mainLog = seedCount(de.sets, de.barWeight, de.reps);
+      if (t === 'DE Lower' && de.speedPullExercise && !de.speedPullLog.length) de.speedPullLog = seedCount(de.speedPullSets, de.speedPullWeight, de.speedPullReps);
+    }
+    if (t === 'GPP / Extra Workout') seedRows(state.gpp.rows);
+    if (['Recovery / Restoration', 'Deload'].includes(t)) seedRows(state.recovery.rows);
+  }
+
+  function clearLogs(s) {
+    [s.warmup, s.supplemental, s.accessories, s.gpp.rows, s.recovery.rows]
+      .forEach(rows => (rows || []).forEach(r => { r.log = []; }));
+    (s.main.sets || []).forEach(x => { x.done = false; });
+    s.de.primerLog = []; s.de.mainLog = []; s.de.speedPullLog = [];
+    return s;
   }
 
   function defaultWarmup(type) { return type.includes('Upper') ? 'Band Pull-Apart' : 'Easy Bike'; }
@@ -145,6 +187,29 @@
       }
       const applyPreset = e.target.closest('[data-apply-preset]');
       if (applyPreset) applySelectedPreset(applyPreset.dataset.applyPreset);
+      const logAdd = e.target.closest('[data-log-add]');
+      if (logAdd) {
+        collectState();
+        const [key, idx] = logAdd.dataset.logAdd.split(':');
+        const arr = logSetsArray(key, Number(idx));
+        if (arr) {
+          const last = arr[arr.length - 1];
+          arr.push(logSet(last ? last.weight : '', last ? last.reps : ''));
+          renderAll(); scheduleDraft();
+        }
+      }
+      const logDel = e.target.closest('[data-log-del]');
+      if (logDel) {
+        const setEl = logDel.closest('.log-set');
+        const block = logDel.closest('[data-log-row]');
+        if (setEl && block) {
+          collectState();
+          const [key, idx] = block.dataset.logRow.split(':');
+          const arr = logSetsArray(key, Number(idx));
+          const j = [...block.querySelectorAll('.log-set')].indexOf(setEl);
+          if (arr && j >= 0) { arr.splice(j, 1); renderAll(); scheduleDraft(); }
+        }
+      }
     });
 
     document.addEventListener('input', e => {
@@ -156,6 +221,14 @@
     document.addEventListener('change', e => {
       if (e.target.closest('#sessionSpecific') || e.target.closest('#warmupCard')) {
         if (e.target.matches('[data-main-exercise], [data-main-variation]')) updatePreviousPRFromHistory();
+        if (e.target.matches('.logDone')) {
+          e.target.closest('.log-set')?.classList.toggle('done', e.target.checked);
+          collectState(); updateLogProgress();
+        }
+        if (e.target.matches('.setDone')) {
+          e.target.closest('tr')?.classList.toggle('done', e.target.checked);
+          collectState(); updateLogProgress();
+        }
         scheduleDraft();
       }
     });
@@ -220,12 +293,14 @@
 
   /* ---------------- rendering ---------------- */
   function renderAll() {
+    const isLog = state.mode === 'Log';
+    document.body.classList.toggle('log-mode', isLog);
     document.querySelectorAll('.chip-btn').forEach(b => b.classList.toggle('active', b.dataset.session === state.sessionType));
     document.getElementById('sessionTitle').textContent = state.sessionType;
-    document.getElementById('sessionDescription').textContent = sessionMeta[state.sessionType].description;
+    document.getElementById('sessionDescription').textContent = isLog ? 'Logging against your plan — tap ✓ as you complete sets.' : sessionMeta[state.sessionType].description;
     document.getElementById('modeLabel').textContent = state.mode.toUpperCase() + ' MODE';
     document.querySelectorAll('.mode-toggle button').forEach(b => b.classList.toggle('active', b.dataset.mode === state.mode));
-    renderExerciseTable('warmupTableWrap', 'warmup', state.warmup, 'warmup');
+    if (!isLog) renderExerciseTable('warmupTableWrap', 'warmup', state.warmup, 'warmup');
     renderSessionSpecific();
     updateReadiness();
     updatePrintSubtitle();
@@ -234,6 +309,13 @@
 
   function renderSessionSpecific() {
     const container = document.getElementById('sessionSpecific');
+    if (state.mode === 'Log') {
+      container.innerHTML = renderLogTemplate();
+      if (state.sessionType.startsWith('ME ')) renderSetTable();
+      bindDynamicStateValues();
+      updateLogProgress();
+      return;
+    }
     if (state.sessionType.startsWith('ME ')) container.innerHTML = renderMETemplate();
     else if (state.sessionType.startsWith('DE ')) container.innerHTML = renderDETemplate();
     else if (state.sessionType === 'GPP / Extra Workout') container.innerHTML = renderGPPTemplate();
@@ -418,6 +500,201 @@
       </section>`;
   }
 
+  /* ---------------- log mode ---------------- */
+  function planRefText(r) {
+    const parts = [];
+    const sr = [r.sets, r.reps || r.duration].filter(Boolean).join(' × ');
+    if (sr) parts.push(sr);
+    if (r.weight) parts.push('@ ' + r.weight + ' ' + settings.unit);
+    if (r.rpe) parts.push('RPE ' + r.rpe);
+    if (r.rest) parts.push('Rest ' + r.rest);
+    const note = r.weakPoint || r.notes;
+    if (note) parts.push(note);
+    return parts.join(' · ');
+  }
+
+  function logSetsHTML(sets) {
+    return (sets || []).map((s, j) => `
+      <div class="log-set${s.done ? ' done' : ''}">
+        <span class="log-set-num">${j + 1}</span>
+        <input class="logW" inputmode="decimal" placeholder="${settings.unit}" aria-label="Weight" value="${escapeHTML(s.weight)}">
+        <span class="log-x">×</span>
+        <input class="logR" inputmode="numeric" placeholder="reps" aria-label="Reps" value="${escapeHTML(s.reps)}">
+        <label class="log-done-wrap no-print" title="Set complete"><input type="checkbox" class="logDone" ${s.done ? 'checked' : ''}><span>✓</span></label>
+        <button class="log-del no-print" data-log-del title="Remove set">✕</button>
+      </div>`).join('');
+  }
+
+  /* cfg: { key, index, name, context, nameAttr, ref, sets } */
+  function logBlockHTML(cfg) {
+    const listId = `loglist-${cfg.key}-${cfg.index}`;
+    const options = getExerciseOptions(cfg.context).map(x => `<option value="${escapeHTML(x.name)}" label="${escapeHTML(x.category)}"></option>`).join('');
+    const nameAttr = cfg.nameAttr ? ` ${cfg.nameAttr}` : ' class="logExercise"';
+    return `<div class="log-block" data-log-row="${cfg.key}:${cfg.index}">
+      <div class="log-block-head">
+        <input${nameAttr} list="${listId}" value="${escapeHTML(cfg.name)}" placeholder="Exercise"><datalist id="${listId}">${options}</datalist>
+      </div>
+      ${cfg.ref ? `<div class="log-plan-ref">Plan: ${escapeHTML(cfg.ref)}</div>` : ''}
+      <div class="log-sets">${logSetsHTML(cfg.sets)}</div>
+      <button class="btn small no-print" type="button" data-log-add="${cfg.key}:${cfg.index}">＋ Add Set</button>
+    </div>`;
+  }
+
+  function logSectionHTML(eyebrow, title, inner, addRowKey) {
+    const addBtn = addRowKey ? `<button class="btn no-print" type="button" data-add-row="${addRowKey}">＋ Add Exercise</button>` : '';
+    return `<section class="card">
+      <div class="card-head"><div><div class="eyebrow">${eyebrow}</div><h3>${title}</h3></div>${addBtn}</div>
+      <div class="card-body">${inner || '<p class="muted small">Nothing planned. Add an exercise to log it.</p>'}</div>
+    </section>`;
+  }
+
+  function rowBlocks(key, rows, context) {
+    return rows.map((r, i) => logBlockHTML({ key, index: i, name: r.exercise, context, ref: planRefText(r), sets: r.log })).join('');
+  }
+
+  function renderLogTemplate() {
+    const t = state.sessionType;
+    const upper = t.includes('Upper');
+    const out = [];
+
+    out.push(`<section class="card">
+      <div class="card-body">
+        <div class="summary-strip">
+          <div class="metric"><span>Sets Done</span><strong id="logProgress">—</strong></div>
+          <div class="metric"><span>Date</span><strong>${escapeHTML(formatDate(state.date) || '—')}</strong></div>
+          <div class="metric"><span>Week</span><strong>${escapeHTML(state.weekNumber || '—')}</strong></div>
+          <div class="metric"><span>Readiness</span><strong id="logReadinessMetric">—</strong></div>
+        </div>
+      </div>
+    </section>`);
+
+    out.push(logSectionHTML('Preparation', 'Warm-Up', rowBlocks('warmup', state.warmup, 'warmup'), 'warmup'));
+
+    if (t.startsWith('ME ')) {
+      const m = state.main;
+      const variation = [m.bar, m.stanceGrip, m.romSetup, m.resistance, m.bandSetup].filter(Boolean).join(' · ');
+      const targetLine = [variation, m.previousPR ? `Prev PR ${m.previousPR} ${settings.unit}` : '', m.target ? `Target ${m.target} ${settings.unit}` : ''].filter(Boolean).join(' · ');
+      out.push(`<section class="card">
+        <div class="card-head"><div><div class="eyebrow">Max Effort</div><h3>Main Lift — Work to Top Set</h3></div><button class="btn no-print" type="button" data-add-set>＋ Add Set</button></div>
+        <div class="card-body">
+          <div class="field"><label>Exercise</label>${exerciseInput('mainExercise', m.exercise, upper ? 'meUpper' : 'meLower')}</div>
+          ${targetLine ? `<div class="log-plan-ref">Plan: ${escapeHTML(targetLine)}</div>` : ''}
+          <div class="table-wrap" id="setTableWrap"></div>
+          <div class="grid grid-3" style="margin-top:12px">
+            <div class="field"><label>Top Result Weight</label><div class="inline-field"><input id="mainTopWeight" type="number" step="0.5" inputmode="decimal" value="${escapeHTML(m.topResultWeight)}"><span class="unit weight-unit">${settings.unit}</span></div></div>
+            <div class="field"><label>Top Result Reps</label><input id="mainTopReps" type="number" min="1" inputmode="numeric" value="${escapeHTML(m.topResultReps)}"></div>
+            <div class="field"><label>New PR?</label><select id="mainIsPR"><option value="false" ${!m.isPR ? 'selected' : ''}>No</option><option value="true" ${m.isPR ? 'selected' : ''}>Yes</option></select></div>
+          </div>
+        </div>
+      </section>`);
+      out.push(logSectionHTML('Weak Point', 'Primary Supplemental', rowBlocks('supplemental', state.supplemental, 'supplemental'), 'supplemental'));
+      out.push(logSectionHTML('Special Work', upper ? 'Triceps, Lats, Upper Back & Delts' : 'Posterior Chain, Back & Abs', rowBlocks('accessories', state.accessories, 'accessory'), 'accessories'));
+    } else if (t.startsWith('DE ')) {
+      const de = state.de;
+      const primerRef = [[de.primerSets, de.primerReps].filter(Boolean).join(' × '), de.contacts ? `${de.contacts} ${upper ? 'throws' : 'contacts'}` : '', de.heightDistance].filter(Boolean).join(' · ');
+      out.push(logSectionHTML('Explosive Primer', upper ? 'Ballistic Work' : 'Jumps & Reactive Work',
+        logBlockHTML({ key: 'dePrimer', index: 0, name: de.primer, context: upper ? 'explosiveUpper' : 'explosiveLower', nameAttr: 'id="dePrimer"', ref: primerRef, sets: de.primerLog })));
+      const deRef = [de.wave, de.percentage && de.baseMax ? `${de.percentage}% of ${de.baseMax}` : '', de.barWeight ? `Bar ${de.barWeight} ${settings.unit}` : '', [de.sets, de.reps].filter(Boolean).join(' × '), de.rest ? `Rest ${de.rest}s` : '', de.resistance !== 'Straight Weight' ? de.resistance : '', de.bandSetup].filter(Boolean).join(' · ');
+      out.push(`<section class="card">
+        <div class="card-head"><div><div class="eyebrow">Dynamic Effort</div><h3>${upper ? 'Dynamic Bench Press' : 'Dynamic Squat'}</h3></div><span class="status-pill">Bar speed first</span></div>
+        <div class="card-body">
+          ${logBlockHTML({ key: 'deMain', index: 0, name: state.main.exercise, context: upper ? 'deUpper' : 'deLower', nameAttr: 'id="deMainExercise"', ref: deRef, sets: de.mainLog })}
+          <div class="grid grid-2" style="margin-top:12px">
+            <div class="field"><label>Speed Quality</label><select id="deSpeedQuality"><option ${de.speedQuality === 'Excellent' ? 'selected' : ''}>Excellent</option><option ${de.speedQuality === 'Good' ? 'selected' : ''}>Good</option><option ${de.speedQuality === 'Declining' ? 'selected' : ''}>Declining</option></select></div>
+            <div class="field"><label>Speed / Technique Notes</label><input id="deSpeedNotes" value="${escapeHTML(de.speedNotes)}"></div>
+          </div>
+        </div>
+      </section>`);
+      if (t === 'DE Lower') {
+        const spRef = [[de.speedPullSets, de.speedPullReps].filter(Boolean).join(' × '), de.speedPullWeight ? `@ ${de.speedPullWeight} ${settings.unit}` : '', de.speedPullRest ? `Rest ${de.speedPullRest}s` : '', de.speedPullResistance !== 'Straight Weight' ? de.speedPullResistance : ''].filter(Boolean).join(' · ');
+        out.push(`<section class="card">
+          <div class="card-head"><div><div class="eyebrow">Speed Pulls</div><h3>Dynamic Deadlift</h3></div><span class="status-pill">Singles</span></div>
+          <div class="card-body">
+            ${logBlockHTML({ key: 'speedPull', index: 0, name: de.speedPullExercise, context: 'deLower', nameAttr: 'id="speedPullExercise"', ref: spRef, sets: de.speedPullLog })}
+            <div class="field" style="margin-top:12px"><label>Quality</label><select id="speedPullQuality"><option ${de.speedPullQuality === 'Excellent' ? 'selected' : ''}>Excellent</option><option ${de.speedPullQuality === 'Good' ? 'selected' : ''}>Good</option><option ${de.speedPullQuality === 'Declining' ? 'selected' : ''}>Declining</option></select></div>
+          </div>
+        </section>`);
+      }
+      out.push(logSectionHTML('Weak Point', 'Primary Supplemental', rowBlocks('supplemental', state.supplemental, 'supplemental'), 'supplemental'));
+      out.push(logSectionHTML('Special Work', upper ? 'Triceps, Lats, Upper Back & Delts' : 'Posterior Chain, Back, Abs & GPP', rowBlocks('accessories', state.accessories, 'accessory'), 'accessories'));
+    } else if (t === 'GPP / Extra Workout') {
+      const g = state.gpp;
+      const ref = [g.purpose, g.focus, g.targetDuration ? g.targetDuration + ' min' : '', g.intensity].filter(Boolean).join(' · ');
+      out.push(logSectionHTML('Work', `GPP / Extra Workout${ref ? ` <span class="muted small">— ${escapeHTML(ref)}</span>` : ''}`, rowBlocks('gppRows', g.rows, 'gpp'), 'gppRows'));
+    } else {
+      const r = state.recovery;
+      const ref = [r.mode, r.reason, r.availableTime ? r.availableTime + ' min' : '', r.intensity].filter(Boolean).join(' · ');
+      out.push(logSectionHTML('Active Recovery', `${t === 'Deload' ? 'Deload Session Work' : 'Recovery Work'}${ref ? ` <span class="muted small">— ${escapeHTML(ref)}</span>` : ''}`, rowBlocks('recoveryRows', r.rows, 'recovery'), 'recoveryRows'));
+    }
+    return out.join('');
+  }
+
+  function logCounters() {
+    const t = state.sessionType;
+    let total = 0, done = 0;
+    const count = sets => (sets || []).forEach(s => { total += 1; if (s.done) done += 1; });
+    state.warmup.forEach(r => count(r.log));
+    if (t.startsWith('ME ') || t.startsWith('DE ')) {
+      state.supplemental.forEach(r => count(r.log));
+      state.accessories.forEach(r => count(r.log));
+    }
+    if (t.startsWith('ME ')) count(state.main.sets);
+    if (t.startsWith('DE ')) { count(state.de.primerLog); count(state.de.mainLog); if (t === 'DE Lower') count(state.de.speedPullLog); }
+    if (t === 'GPP / Extra Workout') state.gpp.rows.forEach(r => count(r.log));
+    if (['Recovery / Restoration', 'Deload'].includes(t)) state.recovery.rows.forEach(r => count(r.log));
+    return { total, done };
+  }
+
+  function updateLogProgress() {
+    const el = document.getElementById('logProgress');
+    if (el) {
+      const { total, done } = logCounters();
+      el.textContent = total ? `${done} / ${total}` : '—';
+    }
+    const rm = document.getElementById('logReadinessMetric');
+    if (rm) rm.textContent = document.getElementById('readinessBadge').textContent.replace('Readiness: ', '');
+  }
+
+  function logSetsArray(key, i) {
+    const rowArr = getRowArray(key);
+    if (rowArr) { const r = rowArr[i]; if (!r) return null; if (!Array.isArray(r.log)) r.log = []; return r.log; }
+    if (key === 'deMain') return state.de.mainLog;
+    if (key === 'dePrimer') return state.de.primerLog;
+    if (key === 'speedPull') return state.de.speedPullLog;
+    return null;
+  }
+
+  function collectLogDOM() {
+    document.querySelectorAll('[data-log-row]').forEach(block => {
+      const [key, idxStr] = block.dataset.logRow.split(':');
+      const i = Number(idxStr);
+      const sets = [...block.querySelectorAll('.log-set')].map(el => ({
+        weight: qv(el, '.logW'), reps: qv(el, '.logR'), done: !!el.querySelector('.logDone')?.checked
+      }));
+      const rowArr = getRowArray(key);
+      if (rowArr) {
+        const r = rowArr[i];
+        if (!r) return;
+        const name = block.querySelector('.logExercise');
+        if (name) r.exercise = name.value;
+        r.log = sets;
+      } else if (key === 'deMain') state.de.mainLog = sets;
+      else if (key === 'dePrimer') state.de.primerLog = sets;
+      else if (key === 'speedPull') state.de.speedPullLog = sets;
+    });
+    if (document.getElementById('setTableWrap')) {
+      state.main.sets = [...document.querySelectorAll('[data-set-index]')].map(tr => ({ weight: qv(tr, '.setWeight'), reps: qv(tr, '.setReps'), rpe: qv(tr, '.setRpe'), result: qv(tr, '.setResult'), notes: qv(tr, '.setNotes'), done: !!tr.querySelector('.setDone')?.checked }));
+    }
+    [['mainExercise', v => { state.main.exercise = v; }], ['mainTopWeight', v => { state.main.topResultWeight = v; }],
+     ['mainTopReps', v => { state.main.topResultReps = v; }], ['deMainExercise', v => { state.main.exercise = v; }],
+     ['dePrimer', v => { state.de.primer = v; }], ['deSpeedQuality', v => { state.de.speedQuality = v; }],
+     ['deSpeedNotes', v => { state.de.speedNotes = v; }], ['speedPullExercise', v => { state.de.speedPullExercise = v; }],
+     ['speedPullQuality', v => { state.de.speedPullQuality = v; }]
+    ].forEach(([id, apply]) => { const el = document.getElementById(id); if (el) apply(el.value); });
+    const isPR = document.getElementById('mainIsPR');
+    if (isPR) state.main.isPR = isPR.value === 'true';
+  }
+
   /* ---------------- exercise pickers ---------------- */
   function exerciseInput(id, value, context, extra = '') {
     const listId = 'list-' + id;
@@ -480,10 +757,12 @@
     const wrap = document.getElementById('setTableWrap');
     if (!wrap) return;
     wrap.classList.add('table-wrap');
-    wrap.innerHTML = `<table class="exercise-table set-table"><thead><tr><th>Weight</th><th>Reps</th><th>RPE</th><th>Result</th><th>Notes</th><th></th></tr></thead><tbody>${state.main.sets.map((s, i) => `
-      <tr data-set-index="${i}">
+    const isLog = state.mode === 'Log';
+    wrap.innerHTML = `<table class="exercise-table set-table"><thead><tr><th>Weight</th><th>Reps</th>${isLog ? '<th>✓</th>' : ''}<th>RPE</th><th>Result</th><th>Notes</th><th></th></tr></thead><tbody>${state.main.sets.map((s, i) => `
+      <tr data-set-index="${i}" class="${s.done ? 'done' : ''}">
         <td data-label="Weight"><input class="setWeight" type="number" step="0.5" inputmode="decimal" value="${escapeHTML(s.weight)}"></td>
         <td data-label="Reps"><input class="setReps" type="number" min="0" inputmode="numeric" value="${escapeHTML(s.reps)}"></td>
+        ${isLog ? `<td data-label="Done"><label class="log-done-wrap small-done no-print"><input type="checkbox" class="setDone" ${s.done ? 'checked' : ''}><span>✓</span></label></td>` : ''}
         <td data-label="RPE"><input class="setRpe" value="${escapeHTML(s.rpe)}"></td>
         <td data-label="Result"><select class="setResult"><option ${s.result === 'Successful' ? 'selected' : ''}>Successful</option><option ${s.result === 'Missed' ? 'selected' : ''}>Missed</option><option ${s.result === 'Skipped' ? 'selected' : ''}>Skipped</option></select></td>
         <td data-label="Notes"><input class="setNotes" value="${escapeHTML(s.notes)}"></td>
@@ -505,12 +784,18 @@
     state.athlete = val('athlete'); state.date = val('sessionDate'); state.weekNumber = val('weekNumber'); state.bodyweight = val('bodyweight');
     state.trainingPhase = val('trainingPhase'); state.primaryGoal = val('primaryGoal'); state.weakPoint = val('weakPoint'); state.painRestrictions = val('painRestrictions');
     state.readiness.painToday = val('painToday'); state.readiness.action = val('readinessAction'); state.sessionNotes = val('sessionNotes'); state.nextSessionNotes = val('nextSessionNotes');
+
+    if (state.mode === 'Log') {
+      collectLogDOM();
+      state.updatedAt = new Date().toISOString();
+      return state;
+    }
     state.warmup = collectRows('warmup');
 
     if (state.sessionType.startsWith('ME ')) {
       state.main.exercise = val('mainExercise'); state.main.bar = val('mainBar'); state.main.stanceGrip = val('mainStanceGrip'); state.main.romSetup = val('mainRomSetup'); state.main.resistance = val('mainResistance'); state.main.bandSetup = val('mainBandSetup');
       state.main.previousPR = val('mainPreviousPR'); state.main.target = val('mainTarget'); state.main.topResultWeight = val('mainTopWeight'); state.main.topResultReps = val('mainTopReps'); state.main.isPR = val('mainIsPR') === 'true';
-      state.main.sets = [...document.querySelectorAll('[data-set-index]')].map(tr => ({ weight: qv(tr, '.setWeight'), reps: qv(tr, '.setReps'), rpe: qv(tr, '.setRpe'), result: qv(tr, '.setResult'), notes: qv(tr, '.setNotes') }));
+      state.main.sets = [...document.querySelectorAll('[data-set-index]')].map((tr, i) => ({ weight: qv(tr, '.setWeight'), reps: qv(tr, '.setReps'), rpe: qv(tr, '.setRpe'), result: qv(tr, '.setResult'), notes: qv(tr, '.setNotes'), done: state.main.sets[i] ? !!state.main.sets[i].done : false }));
       state.supplemental = collectRows('supplemental'); state.accessories = collectRows('accessories');
     } else if (state.sessionType.startsWith('DE ')) {
       state.de.primer = val('dePrimer'); state.de.primerSets = val('dePrimerSets'); state.de.primerReps = val('dePrimerReps'); state.de.contacts = val('deContacts'); state.de.heightDistance = val('deHeightDistance');
@@ -528,10 +813,11 @@
   }
 
   function collectRows(key) {
-    return [...document.querySelectorAll(`[data-row-key="${key}"]`)].map(tr => {
+    const prev = getRowArray(key) || [];
+    return [...document.querySelectorAll(`[data-row-key="${key}"]`)].map((tr, i) => {
       const repTime = qv(tr, '.rowReps');
-      return { exercise: qv(tr, '.rowExercise'), sets: qv(tr, '.rowSets'), reps: repTime, duration: '', weight: qv(tr, '.rowWeight'), rpe: qv(tr, '.rowRpe'), rest: qv(tr, '.rowRest'), notes: qv(tr, '.rowNotes'), weakPoint: '', distance: '', contacts: '', result: '' };
-    }).filter(r => Object.values(r).some(v => v !== ''));
+      return { exercise: qv(tr, '.rowExercise'), sets: qv(tr, '.rowSets'), reps: repTime, duration: '', weight: qv(tr, '.rowWeight'), rpe: qv(tr, '.rowRpe'), rest: qv(tr, '.rowRest'), notes: qv(tr, '.rowNotes'), weakPoint: '', distance: '', contacts: '', result: '', log: (prev[i] && Array.isArray(prev[i].log)) ? prev[i].log : [] };
+    }).filter(r => [r.exercise, r.sets, r.reps, r.weight, r.rpe, r.rest, r.notes].some(v => v !== '') || r.log.length);
   }
 
   function applyStateToStaticFields() {
@@ -554,7 +840,14 @@
     renderAll(); scheduleDraft();
   }
 
-  function setMode(mode) { state.mode = mode; renderAll(); scheduleDraft(); }
+  function setMode(mode) {
+    if (state.mode === mode) return;
+    collectState();
+    state.mode = mode;
+    if (mode === 'Log') seedLogs();
+    renderAll(); scheduleDraft();
+    if (mode === 'Log') toast('Log mode — tap ✓ as you finish each set.', 'success');
+  }
 
   function newSession() {
     if (!confirm('Start a new session? The current draft will be replaced.')) return;
@@ -663,10 +956,27 @@
     if (settings.sync === 'on' && settings.scriptUrl) await syncSessionToSheets(state);
   }
 
+  /* Fold logged sets into row notes so the unchanged Code.gs backend records them. */
+  function withLogSummaries(session) {
+    const s = structuredClone(session);
+    const summary = sets => sets.map(x => `${x.weight || '—'}×${x.reps || '—'}${x.done ? '✓' : ''}`).join(', ');
+    const fold = r => {
+      const logged = (r.log || []).filter(x => x.weight || x.reps || x.done);
+      if (logged.length) r.notes = [r.notes, 'Logged: ' + summary(logged)].filter(Boolean).join(' | ');
+    };
+    [s.warmup, s.supplemental, s.accessories, s.gpp && s.gpp.rows, s.recovery && s.recovery.rows]
+      .forEach(rows => (rows || []).forEach(fold));
+    if (s.de) {
+      const logged = (s.de.mainLog || []).filter(x => x.weight || x.reps || x.done);
+      if (logged.length) s.de.speedNotes = [s.de.speedNotes, 'Logged: ' + summary(logged)].filter(Boolean).join(' | ');
+    }
+    return s;
+  }
+
   async function syncSessionToSheets(session) {
     setDraftStatus('saving', 'Syncing to Google Sheets…');
     try {
-      const response = await fetch(settings.scriptUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'saveSession', token: settings.token || '', payload: session }) });
+      const response = await fetch(settings.scriptUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'saveSession', token: settings.token || '', payload: withLogSummaries(session) }) });
       let result = {}; try { result = await response.json(); } catch {}
       if (!response.ok || result.ok === false) throw new Error(result.error || 'Sync failed');
       setDraftStatus('saved', 'Saved locally + Google Sheets');
@@ -701,7 +1011,7 @@
     const found = history.find(h => h.id === id);
     if (!found) return;
     state = normalizeState(structuredClone(found));
-    if (copy) { state.id = uid(); state.date = todayISO(); state.createdAt = ''; state.main.isPR = false; state.sessionNotes = ''; }
+    if (copy) { state.id = uid(); state.date = todayISO(); state.createdAt = ''; state.main.isPR = false; state.sessionNotes = ''; state.mode = 'Plan'; clearLogs(state); }
     applyStateToStaticFields(); renderAll(); saveDraft(false);
     showView('train');
     toast(copy ? 'Session copied as a new draft.' : 'Saved session opened.', 'success');
@@ -790,9 +1100,15 @@
     (h.main?.sets || []).forEach(s => { total += num(s.weight) * num(s.reps); });
     total += num(h.main?.topResultWeight) * (num(h.main?.topResultReps) || 1);
     if (h.de) {
-      total += num(h.de.barWeight) * num(h.de.sets) * num(h.de.reps);
-      total += num(h.de.speedPullWeight) * num(h.de.speedPullSets) * num(h.de.speedPullReps);
+      const deLogged = (h.de.mainLog || []).filter(s => s.done);
+      if (deLogged.length) deLogged.forEach(s => { total += num(s.weight) * num(s.reps); });
+      else total += num(h.de.barWeight) * num(h.de.sets) * num(h.de.reps);
+      const spLogged = (h.de.speedPullLog || []).filter(s => s.done);
+      if (spLogged.length) spLogged.forEach(s => { total += num(s.weight) * num(s.reps); });
+      else total += num(h.de.speedPullWeight) * num(h.de.speedPullSets) * num(h.de.speedPullReps);
     }
+    [h.supplemental, h.accessories, h.gpp?.rows, h.recovery?.rows].forEach(rows =>
+      (rows || []).forEach(r => (r.log || []).forEach(s => { if (s.done) total += num(s.weight) * num(s.reps); })));
     return total;
   }
 

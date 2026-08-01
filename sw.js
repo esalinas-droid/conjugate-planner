@@ -1,5 +1,5 @@
 /* Conjugate Planner service worker — offline-first app shell. */
-const CACHE = 'conjugate-v1';
+const CACHE = 'conjugate-v2';
 const ASSETS = [
   './',
   './index.html',

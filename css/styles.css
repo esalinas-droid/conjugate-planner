@@ -529,6 +529,81 @@ details:not([open]) > .card-head { border-bottom-color: transparent; }
 
 /* ---------- Print ---------- */
 .print-header { display: none; }
+/* ---------- Log mode ---------- */
+.log-mode #setupCard,
+.log-mode #readinessCard,
+.log-mode #warmupCard { display: none; }
+
+.log-block {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 12px;
+}
+.log-block + .log-block { margin-top: 12px; }
+.log-block-head input {
+  width: 100%;
+  font-weight: 650;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 4px 2px 8px;
+  font-size: 1rem;
+}
+.log-block-head input:focus { outline: none; border-bottom-color: var(--gold); }
+.log-plan-ref {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 8px 0 2px;
+}
+.log-sets { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.log-set { display: flex; align-items: center; gap: 8px; }
+.log-set-num {
+  flex: 0 0 22px;
+  text-align: center;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+.log-set .logW, .log-set .logR {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  padding: 11px 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.log-set .logW:focus, .log-set .logR:focus { outline: none; border-color: var(--gold); }
+.log-x { color: var(--muted); flex: 0 0 auto; }
+.log-done-wrap { position: relative; flex: 0 0 auto; display: inline-flex; }
+.log-done-wrap input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; }
+.log-done-wrap span {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-weight: 800;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.log-done-wrap input:checked + span { background: var(--gold); border-color: var(--gold); color: #151107; }
+.log-done-wrap.small-done span { width: 38px; height: 36px; }
+.log-set.done .logW, .log-set.done .logR { opacity: 0.5; }
+.log-del {
+  flex: 0 0 30px;
+  height: 44px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+}
+.log-del:active, .log-del:hover { color: var(--danger); background: rgba(224, 100, 100, 0.1); }
+.btn.small { padding: 7px 12px; min-height: 36px; font-size: 0.8rem; }
+.set-table tr.done td input, .set-table tr.done td select { opacity: 0.55; }
+
 @media print {
   :root { color-scheme: light; }
   body { background: #fff; color: #000; padding: 0; }
