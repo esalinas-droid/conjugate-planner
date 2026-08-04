@@ -7,7 +7,7 @@
 
   const { sessionMeta, exerciseDB, presets, categoryLabels, row } = window.ConjugateData;
 
-  const APP_VERSION = '2.2.0';
+  const APP_VERSION = '2.3.0';
   const DB_SHEET_ID = '1RMrZrcdkxUJUeDbWc-IZ8HMJlhzBEKuBAJXtJ7ngfWc';
   const STORAGE = {
     draft: 'conjugatePlannerDraftV2',
@@ -99,14 +99,17 @@
   /* Pre-create logged-set rows from the plan so Log mode is ready to check off. */
   function seedLogs() {
     ensureLogShapes(state);
+    /* Only carry a planned value into the logged field when it is a plain
+       number. "8–12" or "5 min" is a target and shows as a placeholder. */
+    const fill = v => (isNumeric(v) ? String(v).trim() : '');
     const seedRows = rows => rows.forEach(r => {
       if (!r.exercise || r.log.length) return;
       const n = Math.min(Math.max(parseInt(r.sets, 10) || 1, 1), 12);
-      r.log = Array.from({ length: n }, () => logSet(r.weight, r.reps || r.duration));
+      r.log = Array.from({ length: n }, () => logSet(fill(r.weight), fill(r.reps || r.duration)));
     });
     const seedCount = (sets, weight, reps, cap = 24) => {
       const n = Math.min(Math.max(parseInt(sets, 10) || 1, 1), cap);
-      return Array.from({ length: n }, () => logSet(weight, reps));
+      return Array.from({ length: n }, () => logSet(fill(weight), fill(reps)));
     };
     seedRows(state.warmup);
     const t = state.sessionType;
@@ -629,19 +632,25 @@
     return parts.join(' · ');
   }
 
-  function logSetsHTML(sets) {
+  /* A planned value is only pre-filled when it is a plain number. Ranges like
+     "8–12" or "5 min" are targets, not results, so they become placeholders. */
+  const isNumeric = v => /^\s*\d+(\.\d+)?\s*$/.test(String(v ?? ''));
+
+  function logSetsHTML(sets, plan = {}) {
+    const wHint = isNumeric(plan.weight) ? settings.unit : (plan.weight || settings.unit);
+    const rHint = plan.reps ? String(plan.reps) : 'reps';
     return (sets || []).map((s, j) => `
       <div class="log-set${s.done ? ' done' : ''}">
         <span class="log-set-num">${j + 1}</span>
-        <input class="logW" inputmode="decimal" placeholder="${settings.unit}" aria-label="Weight" value="${escapeHTML(s.weight)}">
+        <input class="logW" inputmode="decimal" placeholder="${escapeHTML(wHint)}" aria-label="Weight" value="${escapeHTML(s.weight)}">
         <span class="log-x">×</span>
-        <input class="logR" inputmode="numeric" placeholder="reps" aria-label="Reps" value="${escapeHTML(s.reps)}">
+        <input class="logR" inputmode="text" placeholder="${escapeHTML(rHint)}" aria-label="Reps" value="${escapeHTML(s.reps)}">
         <label class="log-done-wrap no-print" title="Set complete"><input type="checkbox" class="logDone" ${s.done ? 'checked' : ''}><span>✓</span></label>
-        <button class="log-del no-print" data-log-del title="Remove set">✕</button>
+        <button class="log-del no-print" data-log-del aria-label="Remove set" title="Remove set">✕</button>
       </div>`).join('');
   }
 
-  /* cfg: { key, index, name, context, nameAttr, ref, sets } */
+  /* cfg: { key, index, name, context, nameAttr, ref, sets, plan } */
   function logBlockHTML(cfg) {
     const listId = `loglist-${cfg.key}-${cfg.index}`;
     const options = getExerciseOptions(cfg.context).map(x => `<option value="${escapeHTML(x.name)}" label="${escapeHTML(x.category)}"></option>`).join('');
@@ -651,21 +660,29 @@
         <input${nameAttr} list="${listId}" value="${escapeHTML(cfg.name)}" placeholder="Exercise"><datalist id="${listId}">${options}</datalist>
       </div>
       ${cfg.ref ? `<div class="log-plan-ref">Plan: ${escapeHTML(cfg.ref)}</div>` : ''}
-      <div class="log-sets">${logSetsHTML(cfg.sets)}</div>
+      <div class="log-sets">${logSetsHTML(cfg.sets, cfg.plan)}</div>
       <button class="btn small no-print" type="button" data-log-add="${cfg.key}:${cfg.index}">＋ Add Set</button>
     </div>`;
   }
 
-  function logSectionHTML(eyebrow, title, inner, addRowKey) {
-    const addBtn = addRowKey ? `<button class="btn no-print" type="button" data-add-row="${addRowKey}">＋ Add Exercise</button>` : '';
+  function logSectionHTML(eyebrow, title, inner, addRowKey, meta) {
+    const addBtn = addRowKey ? `<button class="btn small no-print" type="button" data-add-row="${addRowKey}">＋ Add</button>` : '';
     return `<section class="card">
-      <div class="card-head"><div><div class="eyebrow">${eyebrow}</div><h3>${title}</h3></div>${addBtn}</div>
-      <div class="card-body">${inner || '<p class="muted small">Nothing planned. Add an exercise to log it.</p>'}</div>
+      <div class="card-head">
+        <div class="card-head-text"><div class="eyebrow">${eyebrow}</div><h3>${title}</h3></div>${addBtn}
+      </div>
+      <div class="card-body">
+        ${meta ? `<div class="log-section-meta">${escapeHTML(meta)}</div>` : ''}
+        ${inner || '<p class="muted small">Nothing planned. Add an exercise to log it.</p>'}
+      </div>
     </section>`;
   }
 
   function rowBlocks(key, rows, context) {
-    return rows.map((r, i) => logBlockHTML({ key, index: i, name: r.exercise, context, ref: planRefText(r), sets: r.log })).join('');
+    return rows.map((r, i) => logBlockHTML({
+      key, index: i, name: r.exercise, context, ref: planRefText(r), sets: r.log,
+      plan: { weight: r.weight, reps: r.reps || r.duration }
+    })).join('');
   }
 
   function renderLogTemplate() {
@@ -709,12 +726,12 @@
       const de = state.de;
       const primerRef = [[de.primerSets, de.primerReps].filter(Boolean).join(' × '), de.contacts ? `${de.contacts} ${upper ? 'throws' : 'contacts'}` : '', de.heightDistance].filter(Boolean).join(' · ');
       out.push(logSectionHTML('Explosive Primer', upper ? 'Ballistic Work' : 'Jumps & Reactive Work',
-        logBlockHTML({ key: 'dePrimer', index: 0, name: de.primer, context: upper ? 'explosiveUpper' : 'explosiveLower', nameAttr: 'id="dePrimer"', ref: primerRef, sets: de.primerLog })));
+        logBlockHTML({ key: 'dePrimer', index: 0, name: de.primer, context: upper ? 'explosiveUpper' : 'explosiveLower', nameAttr: 'id="dePrimer"', ref: primerRef, sets: de.primerLog, plan: { weight: '', reps: de.primerReps } })));
       const deRef = [de.wave, de.percentage && de.baseMax ? `${de.percentage}% of ${de.baseMax}` : '', de.barWeight ? `Bar ${de.barWeight} ${settings.unit}` : '', [de.sets, de.reps].filter(Boolean).join(' × '), de.rest ? `Rest ${de.rest}s` : '', de.resistance !== 'Straight Weight' ? de.resistance : '', de.bandSetup].filter(Boolean).join(' · ');
       out.push(`<section class="card">
         <div class="card-head"><div><div class="eyebrow">Dynamic Effort</div><h3>${upper ? 'Dynamic Bench Press' : 'Dynamic Squat'}</h3></div><span class="status-pill">Bar speed first</span></div>
         <div class="card-body">
-          ${logBlockHTML({ key: 'deMain', index: 0, name: state.main.exercise, context: upper ? 'deUpper' : 'deLower', nameAttr: 'id="deMainExercise"', ref: deRef, sets: de.mainLog })}
+          ${logBlockHTML({ key: 'deMain', index: 0, name: state.main.exercise, context: upper ? 'deUpper' : 'deLower', nameAttr: 'id="deMainExercise"', ref: deRef, sets: de.mainLog, plan: { weight: de.barWeight, reps: de.reps } })}
           <div class="grid grid-2" style="margin-top:12px">
             <div class="field"><label>Speed Quality</label><select id="deSpeedQuality"><option ${de.speedQuality === 'Excellent' ? 'selected' : ''}>Excellent</option><option ${de.speedQuality === 'Good' ? 'selected' : ''}>Good</option><option ${de.speedQuality === 'Declining' ? 'selected' : ''}>Declining</option></select></div>
             <div class="field"><label>Speed / Technique Notes</label><input id="deSpeedNotes" value="${escapeHTML(de.speedNotes)}"></div>
@@ -726,7 +743,7 @@
         out.push(`<section class="card">
           <div class="card-head"><div><div class="eyebrow">Speed Pulls</div><h3>Dynamic Deadlift</h3></div><span class="status-pill">Singles</span></div>
           <div class="card-body">
-            ${logBlockHTML({ key: 'speedPull', index: 0, name: de.speedPullExercise, context: 'deLower', nameAttr: 'id="speedPullExercise"', ref: spRef, sets: de.speedPullLog })}
+            ${logBlockHTML({ key: 'speedPull', index: 0, name: de.speedPullExercise, context: 'deLower', nameAttr: 'id="speedPullExercise"', ref: spRef, sets: de.speedPullLog, plan: { weight: de.speedPullWeight, reps: de.speedPullReps } })}
             <div class="field" style="margin-top:12px"><label>Quality</label><select id="speedPullQuality"><option ${de.speedPullQuality === 'Excellent' ? 'selected' : ''}>Excellent</option><option ${de.speedPullQuality === 'Good' ? 'selected' : ''}>Good</option><option ${de.speedPullQuality === 'Declining' ? 'selected' : ''}>Declining</option></select></div>
           </div>
         </section>`);
@@ -736,11 +753,11 @@
     } else if (t === 'GPP / Extra Workout') {
       const g = state.gpp;
       const ref = [g.purpose, g.focus, g.targetDuration ? g.targetDuration + ' min' : '', g.intensity].filter(Boolean).join(' · ');
-      out.push(logSectionHTML('Work', `GPP / Extra Workout${ref ? ` <span class="muted small">— ${escapeHTML(ref)}</span>` : ''}`, rowBlocks('gppRows', g.rows, 'gpp'), 'gppRows'));
+      out.push(logSectionHTML('Work', 'GPP / Extra Workout', rowBlocks('gppRows', g.rows, 'gpp'), 'gppRows', ref));
     } else {
       const r = state.recovery;
       const ref = [r.mode, r.reason, r.availableTime ? r.availableTime + ' min' : '', r.intensity].filter(Boolean).join(' · ');
-      out.push(logSectionHTML('Active Recovery', `${t === 'Deload' ? 'Deload Session Work' : 'Recovery Work'}${ref ? ` <span class="muted small">— ${escapeHTML(ref)}</span>` : ''}`, rowBlocks('recoveryRows', r.rows, 'recovery'), 'recoveryRows'));
+      out.push(logSectionHTML('Active Recovery', t === 'Deload' ? 'Deload Session Work' : 'Recovery Work', rowBlocks('recoveryRows', r.rows, 'recovery'), 'recoveryRows', ref));
     }
     return out.join('');
   }
@@ -769,6 +786,12 @@
     }
     const rm = document.getElementById('logReadinessMetric');
     if (rm) rm.textContent = document.getElementById('readinessBadge').textContent.replace('Readiness: ', '');
+    /* Mark an exercise finished once every one of its sets is ticked, so
+       progress is obvious while scrolling a long session. */
+    document.querySelectorAll('[data-log-row]').forEach(block => {
+      const boxes = [...block.querySelectorAll('.logDone')];
+      block.classList.toggle('complete', boxes.length > 0 && boxes.every(b => b.checked));
+    });
   }
 
   function logSetsArray(key, i) {

@@ -382,6 +382,11 @@ details:not([open]) > .card-head { border-bottom-color: transparent; }
   /* Two rating cards per row squeezes the 1-5 buttons to ~21px wide. */
   .readiness-grid { grid-template-columns: 1fr; }
   .rating-options { gap: 8px; }
+  /* Card headers: keep the action button on one line beside a shrinking title. */
+  .card-head { gap: 8px; }
+  .card-head h3 { font-size: 0.98rem; overflow-wrap: anywhere; }
+  .log-mode .card-body { padding: 12px 10px 12px; }
+  .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 }
 
 /* ---------- Summary strip ---------- */
@@ -548,18 +553,50 @@ details:not([open]) > .card-head { border-bottom-color: transparent; }
 
 /* ---------- Print ---------- */
 .print-header { display: none; }
+/* ---------- Overflow safety ----------
+   .content is a grid; grid/flex items default to min-width:auto and refuse to
+   shrink below their content, which pushed the hero past the viewport. */
+.content > * { min-width: 0; }
+.hero, .hero > * { min-width: 0; }
+.hero p { max-width: 60ch; overflow-wrap: anywhere; }
+.hero h2 { overflow-wrap: anywhere; }
+.card, .card-body, .card-head { min-width: 0; }
+
 /* ---------- Log mode ---------- */
 .log-mode #setupCard,
 .log-mode #readinessCard,
 .log-mode #warmupCard { display: none; }
+/* Readiness already has its own tile in the Log summary strip. */
+.log-mode #readinessBadge { display: none; }
+
+.card-head-text { min-width: 0; flex: 1; }
+.card-head .btn { flex: none; white-space: nowrap; }
+.log-section-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
 
 .log-block {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
-  padding: 12px;
+  padding: 12px 10px 10px;
 }
-.log-block + .log-block { margin-top: 12px; }
+.log-block + .log-block { margin-top: 10px; }
+.log-block.complete { border-color: rgba(212, 175, 90, 0.55); }
+.log-block.complete .log-block-head input { color: var(--gold-2); }
+.log-block.complete .log-block-head::after {
+  content: "✓ done";
+  float: right;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-top: 6px;
+}
 .log-block-head input {
   width: 100%;
   font-weight: 650;
@@ -576,51 +613,66 @@ details:not([open]) > .card-head { border-bottom-color: transparent; }
   font-size: 0.8rem;
   margin: 8px 0 2px;
 }
-.log-sets { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
-.log-set { display: flex; align-items: center; gap: 8px; }
+.log-sets { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.log-set {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+.log-set.done { background: rgba(212, 175, 90, 0.07); }
 .log-set-num {
-  flex: 0 0 22px;
+  flex: 0 0 18px;
   text-align: center;
   color: var(--muted);
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
 }
 .log-set .logW, .log-set .logR {
   flex: 1;
   min-width: 0;
   text-align: center;
-  padding: 11px 6px;
+  padding: 10px 4px;
+  min-height: 44px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
 }
+.log-set .logW::placeholder, .log-set .logR::placeholder { color: #6f6f68; }
 .log-set .logW:focus, .log-set .logR:focus { outline: none; border-color: var(--gold); }
-.log-x { color: var(--muted); flex: 0 0 auto; }
+.log-x { color: var(--muted); flex: 0 0 auto; font-size: 0.85rem; }
 .log-done-wrap { position: relative; flex: 0 0 auto; display: inline-flex; }
 .log-done-wrap input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; }
 .log-done-wrap span {
   display: flex; align-items: center; justify-content: center;
-  width: 46px; height: 44px;
-  border: 1px solid var(--line);
+  width: 52px; height: 44px;
+  border: 1.5px solid var(--line);
   border-radius: var(--radius-sm);
+  background: var(--panel-3);
   color: var(--muted);
   font-weight: 800;
+  font-size: 1.05rem;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .log-done-wrap input:checked + span { background: var(--gold); border-color: var(--gold); color: #151107; }
-.log-done-wrap.small-done span { width: 38px; height: 36px; }
-.log-set.done .logW, .log-set.done .logR { opacity: 0.5; }
+.log-done-wrap input:focus-visible + span { box-shadow: 0 0 0 3px var(--gold-dim); }
+.log-done-wrap.small-done span { width: 46px; height: 44px; font-size: 0.95rem; }
+.log-set.done .logW, .log-set.done .logR { opacity: 0.55; }
+/* Destructive control sits apart from the ✓ so it is hard to hit by accident. */
 .log-del {
-  flex: 0 0 40px;
+  flex: 0 0 32px;
   height: 44px;
+  margin-left: 2px;
   border: none;
   background: none;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: #6f6f68;
+  font-size: 0.75rem;
   border-radius: var(--radius-sm);
 }
-.log-del:active, .log-del:hover { color: var(--danger); background: rgba(224, 100, 100, 0.1); }
-.btn.small { padding: 7px 12px; min-height: 36px; font-size: 0.8rem; }
+.log-del:active, .log-del:hover { color: var(--danger); background: rgba(224, 100, 100, 0.12); }
+/* Visually lighter than a normal button, but still a full 44px touch target. */
+.btn.small { padding: 0 14px; min-height: 44px; font-size: 0.82rem; }
 .set-table tr.done td input, .set-table tr.done td select { opacity: 0.55; }
 
 @media print {
