@@ -7,23 +7,30 @@
 
   const { sessionMeta, exerciseDB, presets, categoryLabels, row } = window.ConjugateData;
 
-  const APP_VERSION = '2.1.0';
+  const APP_VERSION = '2.2.0';
   const DB_SHEET_ID = '1RMrZrcdkxUJUeDbWc-IZ8HMJlhzBEKuBAJXtJ7ngfWc';
   const STORAGE = {
     draft: 'conjugatePlannerDraftV2',
     history: 'conjugatePlannerHistoryV2',
     settings: 'conjugatePlannerSettingsV2',
-    custom: 'conjugatePlannerCustomExercisesV2'
+    custom: 'conjugatePlannerCustomExercisesV2',
+    outbox: 'conjugatePlannerOutboxV2'
   };
 
   const defaultSettings = { athlete: 'Eric Salinas', unit: 'lb', scriptUrl: '', token: '', sync: 'off', sheetId: DB_SHEET_ID };
 
   let settings = loadJSON(STORAGE.settings, defaultSettings);
   let customExercises = loadJSON(STORAGE.custom, []);
+  /* In cloud mode `history` is an in-memory mirror of the Sheet, never persisted. */
   let history = loadJSON(STORAGE.history, []);
+  let outbox = loadJSON(STORAGE.outbox, []);
   let state = createBlankState('ME Lower');
   let draftTimer;
   let currentView = 'train';
+  let remoteLoaded = false;
+
+  const isCloud = () => settings.sync === 'cloud';
+  const sheetsEnabled = () => (settings.sync === 'on' || settings.sync === 'cloud') && !!settings.scriptUrl;
 
   /* ---------------- helpers ---------------- */
   function uid() { return 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
@@ -135,8 +142,114 @@
     if (draft && draft.sessionType) state = normalizeState(draft);
     applyStateToStaticFields();
     renderAll();
+    updateSyncHelp();
     document.getElementById('appVersion').textContent = 'Conjugate Planner v' + APP_VERSION;
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (isCloud()) { history = []; localStorage.removeItem(STORAGE.history); }
+    if (sheetsEnabled()) { flushOutbox(); loadRemoteHistory(false); }
+    window.addEventListener('online', () => { if (sheetsEnabled()) flushOutbox(); });
+  }
+
+  /* ---------------- outbox (offline safety net) ---------------- */
+  function queueOutbox(session) {
+    outbox = outbox.filter(s => s.id !== session.id);
+    outbox.push(structuredClone(session));
+    saveJSON(STORAGE.outbox, outbox);
+    updateOutboxBadge();
+  }
+  function updateOutboxBadge() {
+    const el = document.getElementById('outboxNote');
+    if (!el) return;
+    el.textContent = outbox.length ? `${outbox.length} session${outbox.length > 1 ? 's' : ''} waiting to reach Google Sheets.` : '';
+    el.classList.toggle('hidden', !outbox.length);
+  }
+  async function flushOutbox(showToast = false) {
+    if (!sheetsEnabled() || !outbox.length) { updateOutboxBadge(); return; }
+    const remaining = [];
+    for (const session of outbox) {
+      try { await postToSheets('saveSession', { payload: session }); }
+      catch { remaining.push(session); }
+    }
+    const sent = outbox.length - remaining.length;
+    outbox = remaining;
+    saveJSON(STORAGE.outbox, outbox);
+    updateOutboxBadge();
+    if (sent > 0) {
+      toast(`${sent} pending session${sent > 1 ? 's' : ''} synced to Google Sheets.`, 'success');
+      remoteLoaded = false;
+      loadRemoteHistory(false);
+    } else if (showToast && remaining.length) {
+      toast('Still cannot reach Google Sheets. Sessions are safe and will retry.', 'error');
+    }
+  }
+
+  /* ---------------- Sheets transport ---------------- */
+  async function postToSheets(action, body) {
+    if (!settings.scriptUrl) throw new Error('No Apps Script URL configured.');
+    const response = await fetch(settings.scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, token: settings.token || '', ...body })
+    });
+    let result = {};
+    try { result = await response.json(); } catch { throw new Error('Unreadable response from Apps Script.'); }
+    if (!response.ok || result.ok === false) throw new Error(result.error || 'Request failed');
+    return result;
+  }
+  async function getFromSheets(params) {
+    if (!settings.scriptUrl) throw new Error('No Apps Script URL configured.');
+    const url = new URL(settings.scriptUrl);
+    Object.entries({ token: settings.token || '', ...params }).forEach(([k, v]) => url.searchParams.set(k, v));
+    const response = await fetch(url.toString());
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.error || 'Request failed');
+    return result;
+  }
+
+  async function loadRemoteHistory(showToast = true) {
+    if (!sheetsEnabled()) return;
+    try {
+      const result = await getFromSheets({ action: 'listSessions', limit: '300' });
+      const remote = (Array.isArray(result.sessions) ? result.sessions : []).map(normalizeState);
+      if (isCloud()) {
+        history = remote;
+      } else {
+        const map = new Map(history.map(h => [h.id, h]));
+        remote.forEach(h => { if (h.id) map.set(h.id, h); });
+        history = [...map.values()];
+        saveJSON(STORAGE.history, history);
+      }
+      history.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+      remoteLoaded = true;
+      if (currentView === 'history') renderHistory();
+      if (currentView === 'progress') renderProgress();
+      if (showToast) toast(`Loaded ${remote.length} sessions from Google Sheets.`, 'success');
+    } catch (err) {
+      if (showToast) toast('Could not reach Google Sheets: ' + err.message, 'error');
+    }
+  }
+
+  async function testConnection() {
+    if (!settings.scriptUrl) return toast('Paste your Apps Script Web App URL first.', 'error');
+    toast('Testing connection…');
+    try {
+      await getFromSheets({ action: 'ping' });
+      toast('Connected to Google Sheets successfully.', 'success');
+      loadRemoteHistory(false);
+    } catch (err) {
+      toast('Connection failed: ' + err.message, 'error');
+    }
+  }
+
+  function updateSyncHelp() {
+    const el = document.getElementById('syncHelp');
+    if (!el) return;
+    const messages = {
+      off: 'Sessions are saved only in this browser. Export a backup regularly.',
+      on: 'Sessions are saved here and pushed to Google Sheets. Safest option.',
+      cloud: 'Sessions live in Google Sheets. Only the session you are currently editing is kept on the phone. Needs a connection to save — anything logged offline is held safely and synced automatically.'
+    };
+    el.textContent = messages[settings.sync] || '';
   }
 
   /* ---------------- views ---------------- */
@@ -145,8 +258,10 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
     document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
     document.getElementById('restFab').hidden = name !== 'train';
+    if ((name === 'history' || name === 'progress') && sheetsEnabled() && !remoteLoaded) loadRemoteHistory(false);
     if (name === 'history') renderHistory();
     if (name === 'progress') renderProgress();
+    if (name === 'settings') updateOutboxBadge();
     window.scrollTo({ top: 0 });
   }
 
@@ -245,6 +360,7 @@
 
     ['settingAthlete', 'settingUnit', 'settingScriptUrl', 'settingToken', 'settingSync']
       .forEach(id => document.getElementById(id).addEventListener('change', saveSettings));
+    document.getElementById('testConnectionBtn').addEventListener('click', testConnection);
     document.getElementById('addCustomExerciseBtn').addEventListener('click', addCustomExercise);
     document.getElementById('exportBackupBtn').addEventListener('click', exportBackup);
     document.getElementById('importBackupInput').addEventListener('change', importBackup);
@@ -948,41 +1064,44 @@
     if (!state.id) state.id = uid();
     state.createdAt = state.createdAt || new Date().toISOString();
     state.updatedAt = new Date().toISOString();
+
     const index = history.findIndex(h => h.id === state.id);
     if (index >= 0) history[index] = structuredClone(state); else history.unshift(structuredClone(state));
     history.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
-    saveJSON(STORAGE.history, history); saveJSON(STORAGE.draft, state);
-    toast(index >= 0 ? 'Session updated locally.' : 'Session saved locally.', 'success');
-    if (settings.sync === 'on' && settings.scriptUrl) await syncSessionToSheets(state);
-  }
+    saveJSON(STORAGE.draft, state);
 
-  /* Fold logged sets into row notes so the unchanged Code.gs backend records them. */
-  function withLogSummaries(session) {
-    const s = structuredClone(session);
-    const summary = sets => sets.map(x => `${x.weight || '—'}×${x.reps || '—'}${x.done ? '✓' : ''}`).join(', ');
-    const fold = r => {
-      const logged = (r.log || []).filter(x => x.weight || x.reps || x.done);
-      if (logged.length) r.notes = [r.notes, 'Logged: ' + summary(logged)].filter(Boolean).join(' | ');
-    };
-    [s.warmup, s.supplemental, s.accessories, s.gpp && s.gpp.rows, s.recovery && s.recovery.rows]
-      .forEach(rows => (rows || []).forEach(fold));
-    if (s.de) {
-      const logged = (s.de.mainLog || []).filter(x => x.weight || x.reps || x.done);
-      if (logged.length) s.de.speedNotes = [s.de.speedNotes, 'Logged: ' + summary(logged)].filter(Boolean).join(' | ');
+    if (isCloud()) {
+      if (!settings.scriptUrl) {
+        queueOutbox(state);
+        return toast('No Apps Script URL set. Session held on this device until Sheets is configured.', 'error');
+      }
+      setDraftStatus('saving', 'Saving to Google Sheets…');
+      try {
+        await postToSheets('saveSession', { payload: state });
+        setDraftStatus('saved', 'Saved to Google Sheets');
+        toast(index >= 0 ? 'Session updated in Google Sheets.' : 'Session saved to Google Sheets.', 'success');
+      } catch (err) {
+        queueOutbox(state);
+        setDraftStatus('error', 'Waiting to reach Google Sheets');
+        toast('Offline or Sheets unreachable — session saved on this device and will sync automatically.', 'error');
+      }
+      return;
     }
-    return s;
+
+    saveJSON(STORAGE.history, history);
+    toast(index >= 0 ? 'Session updated locally.' : 'Session saved locally.', 'success');
+    if (sheetsEnabled()) await syncSessionToSheets(state);
   }
 
   async function syncSessionToSheets(session) {
     setDraftStatus('saving', 'Syncing to Google Sheets…');
     try {
-      const response = await fetch(settings.scriptUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'saveSession', token: settings.token || '', payload: withLogSummaries(session) }) });
-      let result = {}; try { result = await response.json(); } catch {}
-      if (!response.ok || result.ok === false) throw new Error(result.error || 'Sync failed');
+      await postToSheets('saveSession', { payload: session });
       setDraftStatus('saved', 'Saved locally + Google Sheets');
       toast('Session synced to Google Sheets.', 'success');
     } catch (err) {
-      setDraftStatus('error', 'Saved locally — Google sync failed');
+      queueOutbox(session);
+      setDraftStatus('error', 'Saved locally — Google sync will retry');
       toast('Saved locally. Google Sheets sync failed: ' + err.message, 'error');
     }
   }
@@ -993,10 +1112,18 @@
   }
 
   function renderHistory() {
+    const source = document.getElementById('historySource');
+    if (source) source.textContent = isCloud() ? 'GOOGLE SHEETS' : sheetsEnabled() ? 'THIS DEVICE + GOOGLE SHEETS' : 'THIS DEVICE';
     const type = val('historyTypeFilter').toLowerCase(), ex = val('historyExerciseFilter').toLowerCase(), athlete = val('historyAthleteFilter').toLowerCase();
     const list = history.filter(h => (!type || String(h.sessionType).toLowerCase() === type) && (!ex || String(h.main?.exercise || '').toLowerCase().includes(ex)) && (!athlete || String(h.athlete || '').toLowerCase().includes(athlete)));
     const wrap = document.getElementById('historyList');
-    if (!list.length) { wrap.innerHTML = '<p class="muted" style="text-align:center;padding:24px 0">No saved sessions match the current filters.</p>'; return; }
+    if (!list.length) {
+      const hint = isCloud() && !remoteLoaded
+        ? 'Loading from Google Sheets… if this persists, check Settings and tap Test Connection.'
+        : 'No saved sessions match the current filters.';
+      wrap.innerHTML = `<p class="muted" style="text-align:center;padding:24px 0">${hint}</p>`;
+      return;
+    }
     wrap.innerHTML = list.map(h => `<div class="history-item">
       <div><strong>${escapeHTML(formatDate(h.date))}</strong><div class="muted small">Week ${escapeHTML(h.weekNumber || '—')}</div></div>
       <div><h4>${escapeHTML(h.sessionType)}</h4><p>${escapeHTML(h.main?.exercise || h.gpp?.preset || h.recovery?.preset || 'Custom session')}${h.main?.topResultWeight ? ` — ${escapeHTML(h.main.topResultWeight)} ${settings.unit} × ${escapeHTML(h.main.topResultReps || 1)}` : ''}${h.main?.isPR ? ' &nbsp;<span class="status-pill good">PR</span>' : ''}</p><p>${escapeHTML(h.sessionNotes || '')}</p></div>
@@ -1017,28 +1144,27 @@
     toast(copy ? 'Session copied as a new draft.' : 'Saved session opened.', 'success');
   }
 
-  function deleteHistorySession(id) {
-    if (!confirm('Delete this saved session from local history?')) return;
+  async function deleteHistorySession(id) {
+    const where = isCloud() ? 'Google Sheets' : 'local history';
+    if (!confirm(`Delete this saved session from ${where}?`)) return;
     history = history.filter(h => h.id !== id);
-    saveJSON(STORAGE.history, history); renderHistory();
-    toast('Session deleted from local history.', 'success');
+    outbox = outbox.filter(h => h.id !== id);
+    saveJSON(STORAGE.outbox, outbox);
+    if (!isCloud()) saveJSON(STORAGE.history, history);
+    renderHistory(); updateOutboxBadge();
+    if (sheetsEnabled()) {
+      try { await postToSheets('deleteSession', { id }); toast('Session deleted from Google Sheets.', 'success'); }
+      catch (err) { toast('Removed here, but Google Sheets delete failed: ' + err.message, 'error'); }
+    } else {
+      toast('Session deleted from local history.', 'success');
+    }
   }
 
   async function syncRemoteHistory() {
     if (!settings.scriptUrl) return toast('Add the Apps Script Web App URL in Settings first.', 'error');
-    try {
-      const url = new URL(settings.scriptUrl);
-      url.searchParams.set('action', 'listSessions'); url.searchParams.set('token', settings.token || ''); url.searchParams.set('limit', '200');
-      const response = await fetch(url.toString());
-      const result = await response.json();
-      if (!result.ok) throw new Error(result.error || 'Remote history failed');
-      const remote = Array.isArray(result.sessions) ? result.sessions : [];
-      const map = new Map(history.map(h => [h.id, h]));
-      remote.forEach(h => { if (h.id && !map.has(h.id)) map.set(h.id, normalizeState(h)); });
-      history = [...map.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)));
-      saveJSON(STORAGE.history, history); renderHistory();
-      toast(`Synced ${remote.length} remote sessions.`, 'success');
-    } catch (err) { toast('Could not load remote history: ' + err.message, 'error'); }
+    await flushOutbox();
+    remoteLoaded = false;
+    await loadRemoteHistory(true);
   }
 
   /* ---------------- PRs + progress ---------------- */
@@ -1204,10 +1330,48 @@
     setVal('settingScriptUrl', settings.scriptUrl); setVal('settingToken', settings.token); setVal('settingSync', settings.sync);
   }
   function saveSettings() {
+    const previous = settings.sync;
     settings = { ...settings, athlete: val('settingAthlete') || 'Eric Salinas', unit: val('settingUnit') || 'lb', scriptUrl: val('settingScriptUrl').trim(), token: val('settingToken'), sync: val('settingSync'), sheetId: DB_SHEET_ID };
     saveJSON(STORAGE.settings, settings);
     updateWeightUnits();
+    updateSyncHelp();
+
+    if (settings.sync === 'cloud' && previous !== 'cloud') {
+      if (!settings.scriptUrl) {
+        toast('Add your Apps Script URL, then use Test Connection before relying on cloud-only storage.', 'error');
+      } else {
+        migrateLocalHistoryToCloud();
+        return;
+      }
+    }
+    if (sheetsEnabled()) { flushOutbox(); remoteLoaded = false; loadRemoteHistory(false); }
     toast('Settings saved.', 'success');
+  }
+
+  /* Push any device-held sessions to Sheets before local history is dropped. */
+  async function migrateLocalHistoryToCloud() {
+    const local = loadJSON(STORAGE.history, []);
+    if (!local.length) {
+      history = []; localStorage.removeItem(STORAGE.history);
+      remoteLoaded = false; await loadRemoteHistory(true);
+      return toast('Cloud-only storage is on. Sessions now save to Google Sheets.', 'success');
+    }
+    toast(`Uploading ${local.length} saved session${local.length > 1 ? 's' : ''} to Google Sheets…`);
+    const failed = [];
+    for (const session of local) {
+      try { await postToSheets('saveSession', { payload: normalizeState(session) }); }
+      catch { failed.push(session); }
+    }
+    if (failed.length) {
+      failed.forEach(queueOutbox);
+      toast(`${local.length - failed.length} uploaded. ${failed.length} will retry automatically — kept on this device until then.`, 'error');
+    } else {
+      toast(`All ${local.length} sessions uploaded to Google Sheets.`, 'success');
+    }
+    localStorage.removeItem(STORAGE.history);
+    history = [];
+    remoteLoaded = false;
+    await loadRemoteHistory(false);
   }
   function updateWeightUnits() { document.querySelectorAll('.weight-unit').forEach(x => x.textContent = settings.unit); }
 
@@ -1229,7 +1393,7 @@
 
   /* ---------------- backup ---------------- */
   function exportBackup() {
-    downloadJSON({ version: 2, exportedAt: new Date().toISOString(), settings, customExercises, history, draft: state }, 'conjugate-planner-backup.json');
+    downloadJSON({ version: 2, exportedAt: new Date().toISOString(), settings, customExercises, history, outbox, draft: state }, 'conjugate-planner-backup.json');
   }
   async function importBackup(e) {
     const file = e.target.files[0];
@@ -1239,20 +1403,48 @@
       if (!data || !Array.isArray(data.history)) throw new Error('Invalid backup file');
       settings = { ...defaultSettings, ...data.settings };
       customExercises = data.customExercises || [];
-      history = data.history || [];
+      history = (data.history || []).map(normalizeState);
       state = normalizeState(data.draft || createBlankState('ME Lower'));
       saveJSON(STORAGE.settings, settings); saveJSON(STORAGE.custom, customExercises);
-      saveJSON(STORAGE.history, history); saveJSON(STORAGE.draft, state);
-      populateSettingsForm(); applyStateToStaticFields(); renderAll();
-      toast('Backup imported.', 'success');
+      saveJSON(STORAGE.draft, state);
+      populateSettingsForm(); applyStateToStaticFields(); renderAll(); updateSyncHelp();
+      if (isCloud() && settings.scriptUrl) {
+        toast(`Backup read. Uploading ${history.length} sessions to Google Sheets…`);
+        await migrateImportedToCloud();
+      } else {
+        saveJSON(STORAGE.history, history);
+        toast('Backup imported.', 'success');
+      }
     } catch (err) { toast('Import failed: ' + err.message, 'error'); }
     finally { e.target.value = ''; }
   }
+  async function migrateImportedToCloud() {
+    const failed = [];
+    for (const session of history) {
+      try { await postToSheets('saveSession', { payload: session }); }
+      catch { failed.push(session); }
+    }
+    failed.forEach(queueOutbox);
+    localStorage.removeItem(STORAGE.history);
+    history = [];
+    remoteLoaded = false;
+    await loadRemoteHistory(false);
+    toast(failed.length
+      ? `Imported. ${failed.length} session${failed.length > 1 ? 's' : ''} still to upload — they will retry automatically.`
+      : 'Backup imported into Google Sheets.', failed.length ? 'error' : 'success');
+  }
+
   function clearLocalData() {
-    if (!confirm('Delete all local session history, PR history and custom exercises?')) return;
-    history = []; customExercises = [];
-    localStorage.removeItem(STORAGE.history); localStorage.removeItem(STORAGE.custom);
-    toast('Local history and custom exercises cleared.', 'success');
+    if (outbox.length && !confirm(`${outbox.length} session(s) have not reached Google Sheets yet and will be lost. Continue?`)) return;
+    const message = isCloud()
+      ? 'Clear the cached copy on this device? Sessions in Google Sheets are not touched.'
+      : 'Delete all local session history and custom exercises? This cannot be undone.';
+    if (!confirm(message)) return;
+    history = []; customExercises = []; outbox = [];
+    localStorage.removeItem(STORAGE.history); localStorage.removeItem(STORAGE.custom); localStorage.removeItem(STORAGE.outbox);
+    updateOutboxBadge(); renderAll();
+    if (isCloud()) { remoteLoaded = false; loadRemoteHistory(false); }
+    toast(isCloud() ? 'Device cache cleared. Google Sheets is untouched.' : 'Local history and custom exercises cleared.', 'success');
   }
 
   function exportPRCsv() {

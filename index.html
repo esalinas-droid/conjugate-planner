@@ -22,10 +22,6 @@
       <span class="brand"><span class="brand-mark">▮▮</span> Conjugate</span>
     </div>
     <div class="appbar-right">
-      <div class="mode-toggle" role="group" aria-label="Planner mode">
-        <button type="button" class="active" data-mode="Plan">Plan</button>
-        <button type="button" data-mode="Log">Log</button>
-      </div>
       <span class="status-dot" id="draftStatus" title="Draft autosave ready"></span>
     </div>
   </header>
@@ -34,6 +30,10 @@
 
     <!-- ============ TRAIN VIEW ============ -->
     <section class="view active" id="view-train">
+      <div class="mode-toggle no-print" role="group" aria-label="Planner mode">
+        <button type="button" class="active" data-mode="Plan">Plan</button>
+        <button type="button" data-mode="Log">Log</button>
+      </div>
       <div class="session-chips no-print" id="sessionChips"></div>
 
       <div class="content" id="printArea">
@@ -142,14 +142,14 @@
     <!-- ============ HISTORY VIEW ============ -->
     <section class="view" id="view-history">
       <div class="content">
-        <section class="hero"><div><div class="muted small">LOCAL + GOOGLE SHEETS</div><h2>Training History</h2></div></section>
+        <section class="hero"><div><div class="muted small" id="historySource">TRAINING RECORD</div><h2>Training History</h2></div></section>
         <section class="card">
           <div class="card-body">
             <div class="grid grid-4">
               <div class="field"><label>Session Type</label><select id="historyTypeFilter"><option value="">All Sessions</option></select></div>
               <div class="field"><label>Exercise</label><input id="historyExerciseFilter" placeholder="Search main exercise" /></div>
               <div class="field"><label>Athlete</label><input id="historyAthleteFilter" placeholder="Search athlete" /></div>
-              <div class="field"><label>&nbsp;</label><button class="btn" id="remoteHistoryBtn">⟳ Sync Remote</button></div>
+              <div class="field"><label>&nbsp;</label><button class="btn" id="remoteHistoryBtn">⟳ Refresh from Sheets</button></div>
             </div>
           </div>
         </section>
@@ -216,7 +216,19 @@
             <div class="grid grid-2">
               <div class="field span-full"><label>Apps Script Web App URL</label><input id="settingScriptUrl" placeholder="https://script.google.com/macros/s/…/exec" /></div>
               <div class="field"><label>Access Token</label><input id="settingToken" placeholder="Must match Code.gs" /></div>
-              <div class="field"><label>Sync Completed Sessions</label><select id="settingSync"><option value="off">Local only</option><option value="on">Local + Google Sheets</option></select></div>
+              <div class="field span-full">
+                <label for="settingSync">Where Sessions Are Stored</label>
+                <select id="settingSync">
+                  <option value="off">This device only</option>
+                  <option value="on">This device + Google Sheets</option>
+                  <option value="cloud">Google Sheets only (minimal phone storage)</option>
+                </select>
+                <p class="muted small" style="margin:6px 0 0" id="syncHelp"></p>
+              </div>
+              <div class="field span-full">
+                <button class="btn" type="button" id="testConnectionBtn">Test Google Sheets Connection</button>
+                <p class="status-pill warn hidden" id="outboxNote" style="margin-top:10px"></p>
+              </div>
               <div class="field span-full">
                 <label>Planner Database</label>
                 <div class="inline-field"><input value="Conjugate Session Planner Database" readonly /><a class="btn" href="https://docs.google.com/spreadsheets/d/1RMrZrcdkxUJUeDbWc-IZ8HMJlhzBEKuBAJXtJ7ngfWc/edit" target="_blank" rel="noopener">Open Sheet</a></div>
@@ -240,7 +252,7 @@
         <section class="card">
           <div class="card-head"><div><div class="eyebrow">Data</div><h3>Backup &amp; Restore</h3></div></div>
           <div class="card-body">
-            <p class="muted small">Local history stays on this device. Export a backup before moving devices or clearing browser data. Backups from the original HTML planner import here too.</p>
+            <p class="muted small" id="backupNote">Export a backup before moving devices or clearing browser data. Backups from the original HTML planner import here too.</p>
             <div class="btn-stack">
               <button class="btn" id="exportBackupBtn">Export Full Backup</button>
               <label class="btn" style="text-align:center">Import Backup<input id="importBackupInput" type="file" accept="application/json" hidden /></label>

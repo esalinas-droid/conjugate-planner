@@ -1,68 +1,115 @@
-CONJUGATE SESSION PLANNER — SETUP GUIDE
-========================================
+CONJUGATE PLANNER — GOOGLE SHEETS SETUP
+=======================================
 
-FILES
------
-1. conjugate_session_planner.html
-   Open this file directly in Google Chrome. It works offline and stores drafts/history in that browser.
+Do this once. It takes about five minutes and lets your training data live in
+Google Sheets instead of on your phone.
 
-2. Code.gs
-   Optional Google Apps Script bridge for permanent Google Sheets storage.
+Database Sheet:
+https://docs.google.com/spreadsheets/d/1RMrZrcdkxUJUeDbWc-IZ8HMJlhzBEKuBAJXtJ7ngfWc/edit
 
-3. Google Sheet database
-   https://docs.google.com/spreadsheets/d/1RMrZrcdkxUJUeDbWc-IZ8HMJlhzBEKuBAJXtJ7ngfWc/edit
 
-WHAT WORKS IMMEDIATELY
-----------------------
-- ME Lower, ME Upper, DE Lower, DE Upper
-- GPP / Extra Workout
-- Recovery / Restoration
-- Deload
-- Context-sensitive searchable exercise menus
-- Custom exercises
-- Plan and Log modes
-- Dynamic exercise rows and ME work-up sets
-- DE load and barbell-volume calculations
-- Readiness scoring
-- Local draft autosave
-- Local session history and PR review
-- Copy previous sessions
-- Printable black-on-white session sheets
-- Chrome Print > Save as PDF
-- JSON backup/import and PR CSV export
-
-CONNECT GOOGLE SHEETS
----------------------
-1. Open the database Sheet above.
-2. Click Extensions > Apps Script.
-3. Delete any starter code and paste the complete contents of Code.gs.
-4. In Code.gs, change:
+STEP 1 — PASTE THE SCRIPT
+-------------------------
+1. Open the Sheet above.
+2. Extensions > Apps Script.
+3. Select everything in the editor and delete it.
+4. Paste the entire contents of gas/Code.gs.
+5. Near the top, change this line:
       const ACCESS_TOKEN = 'CHANGE_ME';
-   to a private phrase, or set it to an empty string:
-      const ACCESS_TOKEN = '';
-5. Click Deploy > New deployment.
-6. Select type: Web app.
-7. Execute as: Me.
-8. Who has access: Anyone with the link.
-9. Deploy and copy the Web App URL.
-10. Open the HTML planner in Chrome.
-11. Open Settings.
-12. Paste the Web App URL.
-13. Enter the same access token used in Code.gs.
-14. Set Sync Completed Sessions to “Local + Google Sheets.”
-15. Save Settings.
+   to a private phrase only you know, for example:
+      const ACCESS_TOKEN = 'squat650';
+   Write that phrase down — you enter it in the app later.
+6. Click the save icon.
 
-DATA MODEL
-----------
-Sessions           One row per completed workout.
-Exercise_Log       One row per exercise or work-up set.
-PRs                Best exact-variation max-effort records.
-Custom_Exercises   User-created exercise library.
-Athletes_Settings  Athlete profile and future configuration fields.
 
-IMPORTANT
----------
-- Do not put Google account passwords or API keys inside the HTML file.
-- The Apps Script Web App URL is the bridge between the local HTML file and the Sheet.
-- Local browser history is tied to the browser/profile and file origin. Export a backup before moving computers or clearing browser data.
-- The planner is a training organization tool, not a diagnostic or medical tool.
+STEP 2 — CREATE THE SHEET TABS
+------------------------------
+1. In the Apps Script toolbar, choose the function "setupSheets".
+2. Click Run.
+3. Google asks for permission the first time. Choose your account >
+   Advanced > Go to (project name) > Allow. This is Google asking whether
+   your own script may edit your own Sheet.
+4. When it finishes, the Sheet has these tabs:
+      Sessions           one row per workout, with set counts and tonnage
+      Exercise_Log       one row per exercise, including logged sets
+      PRs                best result per exact ME variation
+      Custom_Exercises   exercises you create in the app
+      Athletes_Settings  reserved for future use
+      Sessions_Raw       hidden; the complete record the app reads back
+
+
+STEP 3 — PUBLISH IT
+-------------------
+1. Deploy > New deployment.
+2. Click the gear icon > Web app.
+3. Description: anything, e.g. "Conjugate Planner".
+4. Execute as: Me
+5. Who has access: Anyone with the link
+6. Deploy, then copy the Web app URL. It ends in /exec.
+
+"Anyone with the link" means anyone holding that long random URL can reach the
+script — that is why the access token matters. Do not post the URL publicly.
+
+
+STEP 4 — CONNECT THE APP
+------------------------
+1. Open the planner and go to Settings.
+2. Apps Script Web App URL: paste the /exec URL.
+3. Access Token: type the same phrase from Step 1.
+4. Tap "Test Google Sheets Connection". You should see a success message.
+   If it fails, re-check the URL and token, and confirm Step 3 used
+   "Anyone with the link".
+5. Choose where sessions are stored:
+
+      This device only
+        Nothing leaves the phone.
+
+      This device + Google Sheets
+        Saved both places. Safest — survives a Sheets outage or a lost phone.
+
+      Google Sheets only (minimal phone storage)
+        Sessions live in the Sheet. The phone keeps just the session you are
+        currently editing plus your settings.
+
+6. If you switch to a Google Sheets option and already have sessions saved on
+   the phone, the app uploads them automatically and tells you the count.
+
+
+TRAINING WITHOUT SIGNAL
+-----------------------
+Cloud-only mode still works in a gym with no reception. Saving while offline
+keeps the session on the phone and shows a warning. It uploads by itself as
+soon as you reconnect, and Settings shows how many sessions are waiting. Do
+not clear app data while sessions are still waiting.
+
+
+UPDATING THE SCRIPT LATER
+-------------------------
+Saving in the Apps Script editor does NOT update the live web app. After any
+edit you must run:
+   Deploy > Manage deployments > pencil icon > Version: New version > Deploy
+The URL stays the same, so nothing changes in the app.
+
+
+TROUBLESHOOTING
+---------------
+"Invalid access token"
+   The phrase in Settings does not match ACCESS_TOKEN in Code.gs.
+
+"Missing sheet ... Run setupSheets()"
+   Step 2 was skipped, or a tab was renamed or deleted.
+
+Test Connection fails, or history stays empty
+   The deployment is not published to "Anyone with the link", or you pasted
+   the editor URL rather than the /exec deployment URL.
+
+Nothing appears in the Sheet
+   Check the storage setting in the app is not "This device only".
+
+
+NOTES
+-----
+- Keep exporting a backup from Settings now and then. It is a single file and
+  restores everything, including sessions still waiting to upload.
+- Do not put Google account passwords or API keys into the app.
+- The planner organises training. It is not a medical or diagnostic tool.
